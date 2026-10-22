@@ -1,0 +1,41 @@
+name: FINRA·스레숄드 수집 (매일)
+
+on:
+  schedule:
+    - cron: "30 23 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 수집 실행
+        run: python collect_daily.py
+
+      - name: 저장소에 반영
+        run: |
+          git config user.name "daily-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "변경 없음"
+          else
+            git commit -m "daily $(date -u +%Y-%m-%d)"
+            for i in 1 2 3; do
+              git pull --rebase && git push && break
+              sleep 10
+            done
+          fi
