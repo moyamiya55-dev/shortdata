@@ -12,6 +12,8 @@
   2026-10-23T05:30:12Z,SHFS,150.03,-146.0,0
 
 available 이 ">10000000" 이면 10000000 으로 기록한다.
+IBKR 파일에서 종목이 사라지면(=대여 가능 0주) available=0, 수수료는 직전 값으로 기록한다.
+한 번도 파일에 없었던 워치리스트 종목은 fee 칸이 비어 있다.
 """
 
 import csv
@@ -91,6 +93,10 @@ def main() -> int:
             f.write(text)
 
     rows = parse(text)
+    # 파일이 잘려서 오면 전 종목이 '0주'로 잘못 찍히므로, 비정상적으로 짧으면 이번 회차는 건너뜀
+    if len(rows) < 5000:
+        print(f"IBKR 파일이 비정상적으로 짧음({len(rows)}줄) — 이번 회차 건너뜀")
+        return 0
     watch = load_watchlist()
 
     # 직전 상태
@@ -104,6 +110,13 @@ def main() -> int:
     for s in list(last.keys()):
         if s not in tracked and s in rows:
             tracked[s] = rows[s]
+
+    # ★ IBKR 파일은 대여 가능 0주가 되면 그 종목 줄을 아예 뺀다.
+    #   → 파일에서 사라진 추적 종목은 "0주"로 기록 (수수료는 직전 값 유지)
+    for s in set(last.keys()) | watch:
+        if s not in rows:
+            prev = last.get(s) or [None, None, 0]
+            tracked[s] = (prev[0], prev[1], 0)
 
     changed = []
     for s, (fee, rebate, avail) in tracked.items():
@@ -120,7 +133,11 @@ def main() -> int:
         w.writerows(changed)
 
     # 상태 갱신 (추적 대상만 저장)
-    new_state = {s: [v[0], v[1], v[2]] for s, v in tracked.items() if v[0] >= FEE_MIN or s in watch}
+    new_state = {
+        s: [v[0], v[1], v[2]]
+        for s, v in tracked.items()
+        if s in watch or (v[0] is not None and v[0] >= FEE_MIN)
+    }
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(new_state, f)
 
